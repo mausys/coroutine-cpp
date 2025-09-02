@@ -1,114 +1,117 @@
 #include <cassert>
 #include <climits>
 #include <queue>
-#include <print>
 #include <chrono>
 #include <coroutine>
 
-struct CoTask;
-class CoScheduler;
-using CoClock = std::chrono::steady_clock;
-using  CoTimeout = std::chrono::time_point<CoClock>;
-using CoUId = unsigned;
-using CoIndex = std::vector<CoTask>::size_type;
 
-const CoUId kCoUIdInvalid = UINT_MAX;
-const CoIndex kCoIndexInvalid = ~(CoIndex)0;
+namespace cosched {
 
-struct CoTaskId {
+
+struct Task;
+class Scheduler;
+using Clock = std::chrono::steady_clock;
+using  Timeout = std::chrono::time_point<Clock>;
+using UId = unsigned;
+using Index = std::vector<Task>::size_type;
+
+const UId kUIdInvalid = UINT_MAX;
+const Index kIndexInvalid = ~(Index)0;
+
+struct TaskId {
   // index of scheduler task vector
-  CoIndex index;
+  Index index;
   // since indices are recycled uid as additional check is needed,
-  CoUId uid;
+  UId uid;
 
-  bool operator==(const CoTaskId& rhs) {
+  bool operator==(const TaskId& rhs) {
     return (index == rhs.index) && (uid == rhs.uid);
   }
 };
 
-const CoTaskId CoTaskIdInvalid = {
-    .index = kCoIndexInvalid,
-    .uid = kCoUIdInvalid,
+const TaskId TaskIdInvalid = {
+    .index = kIndexInvalid,
+    .uid = kUIdInvalid,
 };
 
 
 // for wait queue
-struct CoTimeoutTask{
-  CoTimeout timeout;
-  CoTaskId tid;
+struct TimeoutTask{
+  Timeout timeout;
+  TaskId tid;
 };
 
 
 // for wait queue
-struct CoCompareTimeoutTask {
-  bool operator()(const CoTimeoutTask& t1, const CoTimeoutTask& t2) {
+struct CompareTimeoutTask {
+  bool operator()(const TimeoutTask& t1, const TimeoutTask& t2) {
     return t1.timeout > t2.timeout;
   }
 };
 
 
-CoTimeout CoGetTimeout(unsigned ms) {
-  auto now = CoClock::now();
+Timeout GetTimeout(unsigned ms) {
+  auto now = Clock::now();
   return now + std::chrono::milliseconds(ms);
 }
 
 // entry point of coroutine
-typedef CoTask (*co_start_fn)();
+typedef Task (*start_fn)();
 
-enum class CoAwaitType {
+enum class AwaitType {
   None,
   Sleep,
   Spawn,
   Join,
 };
 
-struct CoAwaitData {
-  CoAwaitType type;
+struct AwaitData {
+  AwaitType type;
   union {
     unsigned sleep_ms;
     struct {
-      co_start_fn start;
-      CoTaskId *tid;
+      start_fn start;
+      TaskId *tid;
     } spawn;
-    CoTaskId join_tid;
+    TaskId join_tid;
   } data;
 };
 
 
-struct CoAwaitBase {
+struct AwaitBase {
   bool await_ready() noexcept { return false; }
   void await_suspend (std::coroutine_handle<>) noexcept {}
   void await_resume() noexcept {}
 };
 
-struct CoAwaitSleep : CoAwaitBase
+struct AwaitSleep : AwaitBase
 {
-  explicit CoAwaitSleep(unsigned ms) : ms {ms} {}
+  explicit AwaitSleep(unsigned ms) : ms {ms} {}
   unsigned ms;
 };
 
 
-struct CoAwaitSpawn : CoAwaitBase {
-  CoAwaitSpawn(co_start_fn start, CoTaskId *tid) : start {start}, tid {tid}  {}
-  co_start_fn start;
-  CoTaskId *tid;
+struct AwaitSpawn : AwaitBase {
+  AwaitSpawn(start_fn start, TaskId *tid) : start {start}, tid {tid}  {}
+  start_fn start;
+  TaskId *tid;
 };
 
 
-struct CoAwaitJoin : CoAwaitBase {
-  explicit CoAwaitJoin(CoTaskId tid) : tid {tid} {}
-  CoTaskId tid;
+struct AwaitJoin : AwaitBase {
+  explicit AwaitJoin(TaskId tid) : tid {tid} {}
+  TaskId tid;
 };
 
 
 
-struct CoTask
+struct Task
 {
   struct promise_type
   {
     using coro_handle = std::coroutine_handle<promise_type>;
 
-    CoAwaitData data = {.type= CoAwaitType::None, .data = {} };
+    AwaitData data = { .type = AwaitType::None, .data = {} };
     // TODO: handle rethrow exception in scheduler poll
     std::exception_ptr exception_ = nullptr;
 
@@ -118,24 +121,24 @@ struct CoTask
 
     // suspend_always is needed so scheduler can handle it
     auto final_suspend() noexcept {
-      data.type = CoAwaitType::None;
+      data.type = AwaitType::None;
       return std::suspend_always();
     }
 
     // copy await data for scheduler
-    auto await_transform(struct CoAwaitSleep await) noexcept {
-      assert(data.type == CoAwaitType::None);
+    auto await_transform(struct AwaitSleep await) noexcept {
+      assert(data.type == AwaitType::None);
 
-      data.type = CoAwaitType::Sleep;
+      data.type = AwaitType::Sleep;
       data.data.sleep_ms = await.ms;
 
       return await;
     };
 
-    auto await_transform(CoAwaitSpawn await) noexcept {
-      assert(data.type == CoAwaitType::None);
+    auto await_transform(AwaitSpawn await) noexcept {
+      assert(data.type == AwaitType::None);
 
-      data.type = CoAwaitType::Spawn;
+      data.type = AwaitType::Spawn;
       data.data.spawn.start = await.start;
       data.data.spawn.tid = await.tid;
 
@@ -143,10 +146,10 @@ struct CoTask
     };
 
 
-    auto await_transform(CoAwaitJoin await) noexcept {
-      assert(data.type == CoAwaitType::None);
+    auto await_transform(AwaitJoin await) noexcept {
+      assert(data.type == AwaitType::None);
 
-      data.type = CoAwaitType::Join;
+      data.type = AwaitType::Join;
       data.data.join_tid = await.tid;
 
       return await;
@@ -159,13 +162,13 @@ struct CoTask
     }
   };
 
-  CoTask(promise_type::coro_handle handle) : handle_(handle) {}
+  Task(promise_type::coro_handle handle) : handle_(handle) {}
 
 
-  CoTask(CoTask const&) = delete;
-  CoTask& operator=(CoTask &task) = delete;
+  Task(Task const&) = delete;
+  Task& operator=(Task &task) = delete;
 
-  CoTask(CoTask&& task) {
+  Task(Task&& task) {
      // new task added to task vector
      assert(handle_ == nullptr);
 
@@ -175,7 +178,7 @@ struct CoTask
     this->parent_ = task.parent_;
   };
 
-  CoTask& operator=(CoTask&& task)  {
+  Task& operator=(Task&& task)  {
     // recycling vector index, check old task
     assert(handle_.done());
 
@@ -187,7 +190,7 @@ struct CoTask
   };
 
 
-  ~CoTask()
+  ~Task()
   {
     assert(moved_ || handle_.done());
   }
@@ -196,9 +199,9 @@ struct CoTask
     return handle_.done();
   }
 
-  CoAwaitData take_data() {
-    CoAwaitData data = handle_.promise().data;
-    handle_.promise().data.type = CoAwaitType::None;
+  AwaitData take_data() {
+    AwaitData data = handle_.promise().data;
+    handle_.promise().data.type = AwaitType::None;
     return data;
   }
 
@@ -216,8 +219,8 @@ struct CoTask
     return tmp;
   }
 
-  CoUId uid_ = kCoUIdInvalid;
-  CoTaskId parent_ = CoTaskIdInvalid;
+  UId uid_ = kUIdInvalid;
+  TaskId parent_ = TaskIdInvalid;
 
 
 private:
@@ -228,27 +231,27 @@ private:
 
 };
 
-class CoScheduler {
+class Scheduler {
 public:
-  CoScheduler(co_start_fn start) : spawn_{start} {}
+  Scheduler(start_fn start) : spawn_{start} {}
 
   void Poll() {
     // moves tasks from wait_ to ready_ queue, if timeout elapsed
     CheckWaitingTasks();
 
     if (spawn_.start) {
-      co_start_fn start = spawn_.start;
+      start_fn start = spawn_.start;
       spawn_.start = nullptr;
 
-      CoTask task = start();
+      Task task = start();
 
       if (task.done()) {
         // task finished; no tid tell parent
         if (spawn_.tid)
-          *spawn_.tid = CoTaskIdInvalid;
+          *spawn_.tid = TaskIdInvalid;
       }
 
-      CoTaskId tid = AddTask(std::move(task));
+      TaskId tid = AddTask(std::move(task));
 
       if (spawn_.tid) {
         // tell parent tid of child
@@ -260,9 +263,9 @@ public:
     } else if (!ready_.empty()) {
       // process ready queue
 
-      CoTaskId tid = ready_.front();
+      TaskId tid = ready_.front();
       ready_.pop();
-      CoTask *task = GetTask(tid);
+      Task *task = GetTask(tid);
 
       assert(task && !task->done());
 
@@ -277,17 +280,17 @@ public:
 
 private:
 
-  CoTask* GetTask(CoTaskId tid) {
-    if (tid == CoTaskIdInvalid)
+  Task* GetTask(TaskId tid) {
+    if (tid == TaskIdInvalid)
       return nullptr;
 
-    CoTask &task = tasks_[tid.index];
+    Task &task = tasks_[tid.index];
 
     return tid.uid == task.uid_ ? &task : nullptr;
   }
 
-  void SetReady(CoTaskId tid) {
-    CoTask *task = GetTask(tid);
+  void SetReady(TaskId tid) {
+    Task *task = GetTask(tid);
     if (!task)
       return;
 
@@ -301,7 +304,7 @@ private:
   }
 
 
-  CoTaskId AddTask(CoTask &&task)
+  TaskId AddTask(Task &&task)
   {
     task.uid_ = next_uid_++;
 
@@ -316,19 +319,19 @@ private:
       tasks_.push_back(std::move(task));
       index = tasks_.size() - 1;
     }
-    return CoTaskId{index, task.uid_};
+    return TaskId{index, task.uid_};
   }
 
 
   void CheckWaitingTasks()
   {
-    auto now = CoGetTimeout(0);
+    auto now = GetTimeout(0);
 
     for (;;) {
       if (wait_.empty())
         break;
 
-      const CoTimeoutTask &task = wait_.top();
+      const TimeoutTask &task = wait_.top();
 
       if (now < task.timeout)
         break;
@@ -339,36 +342,36 @@ private:
     }
   }
 
-  void ProcessResult(CoTaskId tid) {
-    CoTask *task = GetTask(tid);
+  void ProcessResult(TaskId tid) {
+    Task *task = GetTask(tid);
 
     assert(task);
 
     if (task->done()) {
       SetReady(task->parent_);
-      tasks_[tid.index].uid_= kCoUIdInvalid;
+      tasks_[tid.index].uid_= kUIdInvalid;
       // recycle index
       free_indices_.push(tid.index);
       return;
     }
 
-    CoAwaitData await = task->take_data();
+    AwaitData await = task->take_data();
 
     switch (await.type) {
-      case CoAwaitType::None:
+      case AwaitType::None:
         SetReady(tid);
         break;
-      case CoAwaitType::Sleep:
-        wait_.push(CoTimeoutTask{CoGetTimeout(await.data.sleep_ms), tid});
+      case AwaitType::Sleep:
+        wait_.push(TimeoutTask{GetTimeout(await.data.sleep_ms), tid});
         break;
-      case CoAwaitType::Spawn:
+      case AwaitType::Spawn:
         assert(spawn_.start == nullptr);
         spawn_.start = await.data.spawn.start;
         spawn_.tid = await.data.spawn.tid;
         SetReady(tid);
         break;
-      case CoAwaitType::Join:
-        CoTask *child = GetTask(await.data.join_tid);
+      case AwaitType::Join:
+        Task *child = GetTask(await.data.join_tid);
 
         if (!child || child->done()) {
           // child already done
@@ -376,7 +379,7 @@ private:
           break;
         }
 
-        assert(child->parent_ == CoTaskIdInvalid);
+        assert(child->parent_ == TaskIdInvalid);
         child->parent_ = tid;
 
         break;
@@ -389,19 +392,22 @@ private:
 
   // task requested spawn; spawn in next poll
   struct {
-    co_start_fn start;
-    CoTaskId *tid = nullptr;
+    start_fn start;
+    TaskId *tid = nullptr;
   } spawn_;
 
   // all tasks
-  std::vector<CoTask> tasks_;
+  std::vector<Task> tasks_;
 
   // can be executed
-  std::queue<CoTaskId> ready_;
+  std::queue<TaskId> ready_;
 
   // sleeping tasks
-  std::priority_queue<CoTimeoutTask, std::vector<CoTimeoutTask>, CoCompareTimeoutTask> wait_;
+  std::priority_queue<TimeoutTask, std::vector<TimeoutTask>, CompareTimeoutTask> wait_;
 
   // for recycling tasks_indices
   std::queue<unsigned> free_indices_;
 };
+
+
+}
