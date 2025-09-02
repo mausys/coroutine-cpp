@@ -12,7 +12,9 @@ namespace cosched {
 struct Task;
 class Scheduler;
 using Clock = std::chrono::steady_clock;
-using  Timeout = std::chrono::time_point<Clock>;
+using  TimePoint = std::chrono::time_point<Clock>;
+using Duration = Clock::duration;
+using MilliSeconds = std::chrono::milliseconds;
 using UId = unsigned;
 using Index = std::vector<Task>::size_type;
 
@@ -36,17 +38,17 @@ const TaskId TaskIdInvalid = {
 
 // for wait queue
 struct TimeoutTask{
-  Timeout timeout;
+  TimePoint timepoint;
   TaskId tid;
   auto operator<=>(const TimeoutTask& rhs) const {
-    return timeout <=> rhs.timeout;
+    return timepoint <=> rhs.timepoint;
   }
 };
 
 
-Timeout GetTimeout(unsigned ms) {
+TimePoint GetTimeout(const Duration &duration) {
   auto now = Clock::now();
-  return now + std::chrono::milliseconds(ms);
+  return now + duration;
 }
 
 // entry point of coroutine
@@ -62,7 +64,7 @@ enum class AwaitType {
 struct AwaitData {
   AwaitType type;
   union {
-    unsigned sleep_ms;
+    Duration sleep;
     struct {
       start_fn start;
       TaskId *tid;
@@ -80,8 +82,8 @@ struct AwaitBase {
 
 struct AwaitSleep : AwaitBase
 {
-  explicit AwaitSleep(unsigned ms) : ms {ms} {}
-  unsigned ms;
+  explicit AwaitSleep(Duration duration) : duration {duration} {}
+  Duration duration;
 };
 
 
@@ -124,7 +126,7 @@ struct Task
       assert(data.type == AwaitType::None);
 
       data.type = AwaitType::Sleep;
-      data.data.sleep_ms = await.ms;
+      data.data.sleep = await.duration;
 
       return await;
     };
@@ -319,7 +321,7 @@ private:
 
   void CheckWaitingTasks()
   {
-    auto now = GetTimeout(0);
+    auto now =  Clock::now();
 
     for (;;) {
       if (wait_.empty())
@@ -327,7 +329,7 @@ private:
 
       const TimeoutTask &task = wait_.top();
 
-      if (now < task.timeout)
+      if (now < task.timepoint)
         break;
 
       SetReady(task.tid);
@@ -356,7 +358,7 @@ private:
         SetReady(tid);
         break;
       case AwaitType::Sleep:
-        wait_.push(TimeoutTask{GetTimeout(await.data.sleep_ms), tid});
+        wait_.push(TimeoutTask{GetTimeout(await.data.sleep), tid});
         break;
       case AwaitType::Spawn:
         assert(spawn_.start == nullptr);

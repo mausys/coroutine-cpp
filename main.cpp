@@ -8,7 +8,7 @@ using namespace cosched;
 Task grandchild()
 {
   std::println("grandchild started; sleep");
-  co_await AwaitSleep{300};
+  co_await AwaitSleep{MilliSeconds(300)};
   std::println("grandchild woke up; return");
   co_return;
 }
@@ -18,7 +18,7 @@ Task grandchild()
 Task child1()
 {
   std::println("child1 started; sleep");
-  co_await AwaitSleep{100};
+  co_await AwaitSleep{MilliSeconds(100)};
   std::println("child1 woke up; return");
   co_return;
 }
@@ -27,7 +27,7 @@ Task child1()
 Task child2()
 {
   std::println("child2 started; sleep");
-  co_await AwaitSleep{10};
+  co_await AwaitSleep{MilliSeconds(10)};
   std::println("child2 woke up; spawn grandchild");
   co_await AwaitSpawn{grandchild, NULL};
   co_return;
@@ -44,7 +44,7 @@ Task comain()
   std::println("main child1 spawned; spawn child2");
   co_await AwaitSpawn{child2, &child2id};
   std::println("main child2 spawned; sleep");
-  co_await AwaitSleep{20};
+  co_await AwaitSleep{MilliSeconds(20)};
   std::println("main woke up; spawn child2");
   co_await AwaitSpawn{child2, &child2id};
   std::println("main spawned child2; join child1");
