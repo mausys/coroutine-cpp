@@ -2,6 +2,7 @@
 #include <climits>
 #include <queue>
 #include <chrono>
+#include <compare>
 #include <coroutine>
 
 
@@ -24,9 +25,7 @@ struct TaskId {
   // since indices are recycled uid as additional check is needed,
   UId uid;
 
-  bool operator==(const TaskId& rhs) {
-    return (index == rhs.index) && (uid == rhs.uid);
-  }
+  bool operator==(const TaskId& rhs) const = default;
 };
 
 const TaskId TaskIdInvalid = {
@@ -39,13 +38,8 @@ const TaskId TaskIdInvalid = {
 struct TimeoutTask{
   Timeout timeout;
   TaskId tid;
-};
-
-
-// for wait queue
-struct CompareTimeoutTask {
-  bool operator()(const TimeoutTask& t1, const TimeoutTask& t2) {
-    return t1.timeout > t2.timeout;
+  auto operator<=>(const TimeoutTask& rhs) const {
+    return timeout <=> rhs.timeout;
   }
 };
 
@@ -403,7 +397,7 @@ private:
   std::queue<TaskId> ready_;
 
   // sleeping tasks
-  std::priority_queue<TimeoutTask, std::vector<TimeoutTask>, CompareTimeoutTask> wait_;
+  std::priority_queue<TimeoutTask, std::vector<TimeoutTask>, std::greater<TimeoutTask>> wait_;
 
   // for recycling tasks_indices
   std::queue<unsigned> free_indices_;
