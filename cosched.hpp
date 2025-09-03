@@ -299,7 +299,7 @@ private:
     unsigned index;
     if (!free_indices_.empty()) {
       // recycle index
-      index = free_indices_.back();
+      index = free_indices_.front();
       free_indices_.pop();
 
       tasks_[index] = std::move(task);
@@ -366,8 +366,6 @@ private:
       }
     }
   }
-
-
 
 
   // next_uid incremented everytime it is used
