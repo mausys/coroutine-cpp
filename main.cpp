@@ -5,17 +5,108 @@
 
 using namespace cosched;
 
-Task grandchild()
+class Context {
+  public:
+    int  cnt = 0;
+};
+
+Task<Context> grandchild900(Context& )
+{
+  std::println("grandchild900 started; sleep");
+  co_await AwaitSleep{MilliSeconds(900)};
+  std::println("grandchild900 woke up; return");
+  co_return;
+}
+
+Task<Context> grandchild800(Context&)
+{
+  std::println("grandchild800 started; sleep");
+  co_await AwaitSleep{MilliSeconds(800)};
+  std::println("grandchild800 woke up; return");
+  co_return;
+}
+
+Task<Context> grandchild700(Context&)
+{
+  std::println("grandchild700 started; sleep");
+  co_await AwaitSleep{MilliSeconds(700)};
+  std::println("grandchild700 woke up; return");
+  co_return;
+}
+Task<Context> grandchild600(Context&)
+{
+  std::println("grandchild600 started; sleep");
+  co_await AwaitSleep{MilliSeconds(600)};
+  std::println("grandchild600 woke up; return");
+  co_return;
+}
+Task<Context> grandchild500(Context&)
+{
+  std::println("grandchild500 started; sleep");
+  co_await AwaitSleep{MilliSeconds(500)};
+  std::println("grandchild500 woke up; return");
+  co_return;
+}
+Task<Context> grandchild400(Context&)
+{
+  std::println("grandchild400 started; sleep");
+  co_await AwaitSleep{MilliSeconds(400)};
+  std::println("grandchild400 woke up; return");
+  co_return;
+}
+Task<Context> grandchild300(Context&)
+{
+  std::println("grandchild300 started; sleep");
+  co_await AwaitSleep{MilliSeconds(300)};
+  std::println("grandchild300 woke up; return");
+  co_return;
+}
+Task<Context> grandchild200(Context&)
+{
+  std::println("grandchild200 started; sleep");
+  co_await AwaitSleep{MilliSeconds(200)};
+  std::println("grandchild200 woke up; return");
+  co_return;
+}
+
+Task<Context> grandchild100(Context&)
+{
+  std::println("grandchild100 started; sleep");
+  co_await AwaitSleep{MilliSeconds(100)};
+  std::println("grandchild100 woke up; return");
+  co_return;
+}
+
+
+Task<Context> grandchild0(Context&)
+{
+  std::println("grandchild0 started; sleep");
+  co_await AwaitSleep{MilliSeconds(0)};
+  std::println("grandchild0 woke up; return");
+  co_return;
+}
+
+Task<Context> grandchild(Context&)
 {
   std::println("grandchild started; sleep");
   co_await AwaitSleep{MilliSeconds(300)};
   std::println("grandchild woke up; return");
+  co_await AwaitSpawn{grandchild900, NULL};
+  co_await AwaitSpawn{grandchild0, NULL};
+  co_await AwaitSpawn{grandchild800, NULL};
+  co_await AwaitSpawn{grandchild100, NULL};
+  co_await AwaitSpawn{grandchild700, NULL};
+  co_await AwaitSpawn{grandchild200, NULL};
+  co_await AwaitSpawn{grandchild600, NULL};
+  co_await AwaitSpawn{grandchild300, NULL};
+  co_await AwaitSpawn{grandchild500, NULL};
+
   co_return;
 }
 
 
 
-Task child1()
+Task<Context> child1(Context&)
 {
   std::println("child1 started; sleep");
   co_await AwaitSleep{MilliSeconds(100)};
@@ -24,7 +115,7 @@ Task child1()
 }
 
 
-Task child2()
+Task<Context> child2(Context&)
 {
   std::println("child2 started; sleep");
   co_await AwaitSleep{MilliSeconds(10)};
@@ -34,7 +125,7 @@ Task child2()
 }
 
 
-Task comain()
+Task<Context> comain(Context&)
 {
   std::println("main start");
 
@@ -57,8 +148,10 @@ Task comain()
 int main()
 {
   {
-  Scheduler sched(comain);
-  while (!sched.done()) {
+    Context ctx;
+  Scheduler<Context> sched(comain, ctx);
+  for  (int i = 0; !sched.done(); i++) {
+    //std::println("poll {}", i);
     sched.Poll();
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }

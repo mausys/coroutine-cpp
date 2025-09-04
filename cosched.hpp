@@ -9,15 +9,14 @@
 
 namespace cosched {
 
-
+template<typename T>
 struct Task;
-class Scheduler;
 using Clock = std::chrono::steady_clock;
 using  TimePoint = std::chrono::time_point<Clock>;
 using Duration = Clock::duration;
 using MilliSeconds = std::chrono::milliseconds;
 using UId = unsigned;
-using Index = std::vector<Task>::size_type;
+using Index = size_t;
 
 const UId kUIdInvalid = UINT_MAX;
 const Index kIndexInvalid = ~(Index)0;
@@ -53,24 +52,25 @@ TimePoint GetTimeout(const Duration &duration) {
 }
 
 // entry point of coroutine
-typedef Task (*start_fn)();
+
 
 
 struct AwaitDataSleep {
   Duration duration;
 };
 
+
+template <typename T>
 struct AwaitDataSpawn {
+  using start_fn = Task<T> (*)(T&);
   start_fn start;
   TaskId *tid;
+
 };
 
 struct AwaitDataJoin {
   TaskId tid;
 };
-
-
-using AwaitData = std::variant<std::monostate, AwaitDataSleep, AwaitDataSpawn, AwaitDataJoin>;
 
 
 
@@ -87,10 +87,11 @@ struct AwaitSleep : AwaitBase
   AwaitDataSleep data;
 };
 
-
+template <typename T>
 struct AwaitSpawn : AwaitBase {
+  using start_fn = Task<T> (*)(T&);
   AwaitSpawn(start_fn start, TaskId *tid) : data{start, tid} {}
-  AwaitDataSpawn data;
+  AwaitDataSpawn<T> data;
 };
 
 
@@ -99,15 +100,18 @@ struct AwaitJoin : AwaitBase {
   AwaitDataJoin data;
 };
 
+template<typename T>
+using AwaitData = std::variant<std::monostate, AwaitDataSleep, AwaitDataSpawn<T>, AwaitDataJoin>;
 
 
+template<typename T>
 struct Task
 {
   struct promise_type
   {
     using coro_handle = std::coroutine_handle<promise_type>;
 
-    AwaitData data;
+    AwaitData<T> data;
     // TODO: handle rethrow exception in scheduler poll
     std::exception_ptr exception_ = nullptr;
 
@@ -128,7 +132,7 @@ struct Task
       return await;
     };
 
-    auto await_transform(AwaitSpawn await) noexcept {
+    auto await_transform(AwaitSpawn<T> await) noexcept {
       assert(std::get_if<std::monostate>(&data));
 
       data = await.data;
@@ -189,7 +193,7 @@ struct Task
     return handle_.done();
   }
 
-  AwaitData take_data() {
+  AwaitData<T> take_data() {
     return std::exchange(handle_.promise().data, std::monostate{});
   }
 
@@ -219,9 +223,13 @@ private:
 
 };
 
+template <typename T>
 class Scheduler {
+  using start_fn = Task<T> (*)(T&);
+
+
 public:
-  Scheduler(start_fn start) : spawn_{start} {}
+  Scheduler(start_fn start, T arg) : arg_{arg}, spawn_{start} {}
 
   void Poll() {
     // moves tasks from wait_ to ready_ queue, if timeout elapsed
@@ -231,7 +239,7 @@ public:
       start_fn start = spawn_.start;
       spawn_.start = nullptr;
 
-      Task task = start();
+      Task task = start(arg_);
 
       if (task.done()) {
         // task finished; no tid tell parent
@@ -253,7 +261,7 @@ public:
 
       TaskId tid = ready_.front();
       ready_.pop();
-      Task *task = GetTask(tid);
+      Task<T> *task = GetTask(tid);
 
       assert(task && !task->done());
 
@@ -268,17 +276,17 @@ public:
 
 private:
 
-  Task* GetTask(TaskId tid) {
+  Task<T>* GetTask(TaskId tid) {
     if (tid == TaskIdInvalid)
       return nullptr;
 
-    Task &task = tasks_[tid.index];
+    Task<T> &task = tasks_[tid.index];
 
     return tid.uid == task.uid_ ? &task : nullptr;
   }
 
   void SetReady(TaskId tid) {
-    Task *task = GetTask(tid);
+    Task<T> *task = GetTask(tid);
     if (!task)
       return;
 
@@ -292,7 +300,7 @@ private:
   }
 
 
-  TaskId AddTask(Task &&task)
+  TaskId AddTask(Task<T> &&task)
   {
     task.uid_ = next_uid_++;
 
@@ -331,7 +339,7 @@ private:
   }
 
   void ProcessResult(TaskId tid) {
-    Task *task = GetTask(tid);
+    Task<T> *task = GetTask(tid);
 
     assert(task);
 
@@ -343,19 +351,19 @@ private:
       return;
     }
 
-    AwaitData await = task->take_data();
+    AwaitData<T> await = task->take_data();
 
     if (std::get_if<std::monostate>(&await)) {
       SetReady(tid);
     } else if (const auto* data = std::get_if<AwaitDataSleep>(&await)) {
       wait_.push(TimeoutTask{GetTimeout(data->duration), tid});
-    } else if (const auto* data = std::get_if<AwaitDataSpawn>(&await)) {
+    } else if (const auto* data = std::get_if<AwaitDataSpawn<T>>(&await)) {
       assert(spawn_.start == nullptr);
       spawn_.start = data->start;
       spawn_.tid = data->tid;
       SetReady(tid);
     } else if (const auto* data = std::get_if<AwaitDataJoin>(&await)) {
-      Task *child = GetTask(data->tid);
+      Task<T> *child = GetTask(data->tid);
 
       if (!child || child->done()) {
         // child already done
@@ -366,7 +374,7 @@ private:
       }
     }
   }
-
+  T& arg_;
 
   // next_uid incremented everytime it is used
   unsigned next_uid_ = 0;
@@ -378,7 +386,7 @@ private:
   } spawn_;
 
   // all tasks
-  std::vector<Task> tasks_;
+  std::vector<Task<T>> tasks_;
 
   // can be executed
   std::queue<TaskId> ready_;
