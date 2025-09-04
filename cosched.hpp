@@ -6,7 +6,6 @@
 #include <chrono>
 #include <coroutine>
 
-
 namespace cosched {
 
 template<typename T>
@@ -164,20 +163,21 @@ struct Task
 
   Task(Task&& task) {
      // new task added to task vector
-     assert(handle_ == nullptr);
+    assert(this->handle_ == nullptr);
 
     task.moved_ = true;
-    this->handle_ = std::move(task.handle_);
+    this->handle_ = task.handle_;
     this->uid_ = task.uid_;
     this->parent_ = task.parent_;
   };
 
   Task& operator=(Task&& task)  {
     // recycling vector index, check old task
-    assert(handle_.done());
+    assert(this->handle_.done());
+    this->handle_.destroy();
 
     task.moved_ = true;
-    this->handle_ = std::move(task.handle_);
+    this->handle_ = task.handle_;
     this->uid_ = task.uid_;
     this->parent_ = task.parent_;
     return *this;
@@ -187,6 +187,9 @@ struct Task
   ~Task()
   {
     assert(moved_ || handle_.done());
+
+    if (handle_.done())
+      handle_.destroy();
   }
 
   bool done() {
