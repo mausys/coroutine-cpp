@@ -1,3 +1,6 @@
+#pragma once
+
+
 #include <cassert>
 #include <climits>
 #include <variant>
