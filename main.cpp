@@ -1,5 +1,6 @@
 #include <thread> // needed for sleep
 #include <print>
+#include <exception>
 
 #include "cosched.hpp"
 
@@ -31,6 +32,7 @@ Task<Context> grandchild700(Context&)
   std::println("grandchild700 started; sleep");
   co_await AwaitSleep{MilliSeconds(700)};
   std::println("grandchild700 woke up; return");
+  throw std::logic_error("test");
   co_return;
 }
 Task<Context> grandchild600(Context&)
@@ -152,7 +154,11 @@ int main()
   Scheduler<Context> sched(comain, ctx);
   for  (int i = 0; !sched.done(); i++) {
     //std::println("poll {}", i);
-    sched.Poll();
+    try {
+      sched.Poll();
+    } catch (std::logic_error e) {
+      std::println("exception cauth {}", e.what());
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   }

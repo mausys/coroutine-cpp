@@ -111,7 +111,7 @@ struct Task
     using coro_handle = std::coroutine_handle<promise_type>;
 
     AwaitData<T> data;
-    // TODO: handle rethrow exception in scheduler poll
+
     std::exception_ptr exception_ = nullptr;
 
     auto get_return_object() { return coro_handle::from_promise(*this); }
@@ -191,7 +191,6 @@ struct Task
   }
 
 
-
   bool done() {
     if (handle_ == nullptr)
       return true;
@@ -211,8 +210,13 @@ struct Task
   bool resume()
   {
     ready_ = false;
-    if (!handle_.done())
+    if (!handle_.done()) {
       handle_();
+      std::exception_ptr exception = std::exchange(handle_.promise().exception_, nullptr);
+      if (exception)
+        std::rethrow_exception(exception);
+    }
+
     return !handle_.done();
   }
 
