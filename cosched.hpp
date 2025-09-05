@@ -165,19 +165,16 @@ struct Task
      // new task added to task vector
     assert(this->handle_ == nullptr);
 
-    task.moved_ = true;
-    this->handle_ = task.handle_;
+    this->handle_ = std::exchange(task.handle_, nullptr);
     this->uid_ = task.uid_;
     this->parent_ = task.parent_;
   };
 
   Task& operator=(Task&& task)  {
     // recycling vector index, check old task
-    assert(this->handle_.done());
-    this->handle_.destroy();
+    assert(this->handle_ == nullptr);
 
-    task.moved_ = true;
-    this->handle_ = task.handle_;
+    this->handle_ = std::exchange(task.handle_, nullptr);
     this->uid_ = task.uid_;
     this->parent_ = task.parent_;
     return *this;
@@ -186,14 +183,25 @@ struct Task
 
   ~Task()
   {
-    assert(moved_ || handle_.done());
+    if (handle_ == nullptr)
+      return;
 
     if (handle_.done())
       handle_.destroy();
   }
 
+
+
   bool done() {
-    return handle_.done();
+    if (handle_ == nullptr)
+      return true;
+
+    if (handle_.done()) {
+      handle_.destroy();
+      handle_ = nullptr;
+      return true;
+    }
+    return false;
   }
 
   AwaitData<T> take_data() {
@@ -220,7 +228,6 @@ struct Task
 
 private:
   bool ready_ = {};
-  bool moved_ = false;
   promise_type::coro_handle handle_ = nullptr;
 
 
