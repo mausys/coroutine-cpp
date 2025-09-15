@@ -183,6 +183,13 @@ struct Task
     return *this;
   };
 
+  void rethrow_exception() {
+    std::exception_ptr exception = std::exchange(exception_, nullptr);
+
+    if (exception)
+      std::rethrow_exception(exception);
+
+  }
 
   ~Task()
   {
@@ -195,16 +202,22 @@ struct Task
       return true;
 
     if (handle_.done()) {
+      //safe exception
+      exception_ = handle_.promise().exception_;
+
       handle_.destroy();
       handle_ = nullptr;
       return true;
     }
+
     return false;
   }
+
 
   AwaitData<T> take_data() {
     return std::exchange(handle_.promise().data, std::monostate{});
   }
+
 
   bool resume()
   {
@@ -215,15 +228,9 @@ struct Task
 
     handle_();
 
-    std::exception_ptr exception = std::exchange(handle_.promise().exception_, nullptr);
-
-    bool ret = !done();
-
-    if (exception)
-      std::rethrow_exception(exception);
-
-    return ret;
+    return !done();
   }
+
 
   bool setReady() {
     bool tmp = ready_;
@@ -231,11 +238,13 @@ struct Task
     return tmp;
   }
 
+
   UId uid_ = kUIdInvalid;
   TaskId parent_ = TaskIdInvalid;
 
 private:
   bool ready_ = false;
+  std::exception_ptr exception_ = nullptr;
   promise_type::coro_handle handle_ = nullptr;
 };
 
@@ -261,6 +270,8 @@ public:
         // task finished; no tid tell parent
         if (spawn_.tid)
           *spawn_.tid = TaskIdInvalid;
+        task.rethrow_exception();
+        return;
       }
 
       TaskId tid = AddTask(std::move(task));
@@ -364,6 +375,7 @@ private:
       tasks_[tid.index].uid_= kUIdInvalid;
       // recycle index
       free_indices_.push(tid.index);
+      task->rethrow_exception();
       return;
     }
 
@@ -377,6 +389,9 @@ private:
       assert(spawn_.start == nullptr);
       spawn_.start = data->start;
       spawn_.tid = data->tid;
+
+      if (spawn_.tid)
+        *spawn_.tid = TaskIdInvalid;
       SetReady(tid);
     } else if (const auto* data = std::get_if<AwaitDataJoin>(&await)) {
       Task<T> *child = GetTask(data->tid);
